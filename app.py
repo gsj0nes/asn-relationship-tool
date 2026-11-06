@@ -1,6 +1,6 @@
 import streamlit as st
 
-st.set_page_config(page_title="ASN Relationship Analyzer", layout="wide")
+st.set_page_config(page_title="ASN Relationship Tool", layout="wide")
 
 st.title("ASN Relationship Analyzer")
 st.caption("Maximum of 10")
