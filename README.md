@@ -1,4 +1,4 @@
-ASN Relationship Analyzer (prototype)
+ASN relationship tool (prototype)
 
 Run locally:
   pip install -r requirements.txt
