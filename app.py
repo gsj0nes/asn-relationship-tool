@@ -2,7 +2,7 @@ import streamlit as st
 import uuid                                    # added manually
 from datetime import datetime, timezone        # added manually
 
-st.set_page_config(page_title="ART - The ASN Relationship Tool)", layout="wide")
+st.set_page_config(page_title="ART - The ASN Relationship Tool", layout="wide")
 
 st.title("ART - The ASN Relationship Tool")
 st.caption("Input a mximum of 10 ASNs")
