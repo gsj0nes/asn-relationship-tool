@@ -9,6 +9,63 @@ from pyvis.network import Network
 
 st.set_page_config(page_title="ASN Relationship Analyzer", layout="wide")
 
+# Page-level CSS:
+# - Sticky relationship table (stays visible when you scroll)
+# - Make it compact + readable
+st.markdown(
+    """
+<style>
+.sticky-rel-wrap {
+  position: sticky;
+  top: 0;
+  z-index: 1000;
+  background: white;
+  padding: 0.5rem 0;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.sticky-rel-card {
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: #ffffff;
+}
+
+.sticky-rel-title {
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+.sticky-rel-table {
+  max-height: 220px;         /* keeps it compact */
+  overflow: auto;            /* internal scroll if many edges */
+  border-radius: 8px;
+}
+
+.sticky-rel-table table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.sticky-rel-table th, .sticky-rel-table td {
+  padding: 6px 8px;
+  border-bottom: 1px solid #f3f4f6;
+  text-align: left;
+  vertical-align: top;
+}
+
+.sticky-rel-table th {
+  position: sticky;
+  top: 0;
+  background: #f9fafb;
+  z-index: 1;
+}
+</style>
+""",
+    unsafe_allow_html=True,
+)
+
 st.title("ASN Relationship Analyzer")
 st.caption("Maximum of 10")
 
@@ -98,19 +155,39 @@ def node_id_to_asn(node_id: str) -> str:
         return node_id
 
 
+def render_sticky_relationship_table(rel_df: pd.DataFrame) -> None:
+    # Convert to HTML and wrap in a sticky container
+    table_html = rel_df.to_html(index=False, escape=True)
+    st.markdown(
+        f"""
+<div class="sticky-rel-wrap">
+  <div class="sticky-rel-card">
+    <div class="sticky-rel-title">Relationships shown in the graph</div>
+    <div class="sticky-rel-table">
+      {table_html}
+    </div>
+    <div style="font-size:12px;color:#6b7280;margin-top:8px;">
+      Tip: The graph is set to <b>click-to-use</b>. Scroll past it safely; click the graph to activate pan/zoom.
+      Click outside the graph (or press ESC) to deactivate.
+    </div>
+  </div>
+</div>
+""",
+        unsafe_allow_html=True,
+    )
+
+
 def render_interactive_graph(report: dict) -> None:
     """
     Render the graph using PyVis and embed as an HTML string with st.iframe.
 
-    Edge labels are NOT drawn on edges to prevent overlap.
-    Relationship types are shown in a compact table above the graph,
-    and in the edge hover tooltip.
+    Changes made to address accidental scroll/zoom:
+    - clickToUse=true: graph only responds after you click it (reduces unintended zoom while scrolling).
     """
     nodes = report.get("nodes", [])
     edges = report.get("edges", [])
 
     net = Network(height="560px", width="100%", bgcolor="#ffffff", font_color="#111827", directed=True)
-
     net.barnes_hut(gravity=-30000, central_gravity=0.3, spring_length=180, spring_strength=0.03, damping=0.09)
 
     for n in nodes:
@@ -129,6 +206,7 @@ def render_interactive_graph(report: dict) -> None:
         color = "#355CFF" if status == "supported" else "#9CA3AF"
         width = 2 if conf < 0.85 else 4
 
+        # Keep relationship off the edge line (prevents overlap). Put in tooltip.
         net.add_edge(
             from_id,
             to_id,
@@ -139,9 +217,11 @@ def render_interactive_graph(report: dict) -> None:
             arrows="to",
         )
 
+    # Options: larger fonts, navigation buttons, and click-to-use.
     net.set_options(
         """
         {
+          "clickToUse": true,
           "nodes": {
             "font": { "size": 28, "face": "Arial", "color": "#111827" },
             "scaling": { "min": 12, "max": 48 },
@@ -155,6 +235,7 @@ def render_interactive_graph(report: dict) -> None:
             "tooltipDelay": 100,
             "navigationButtons": true,
             "keyboard": { "enabled": true },
+            "zoomSpeed": 0.3,
             "zoomView": true,
             "dragView": true
           }
@@ -211,37 +292,18 @@ if st.button("Analyze"):
             "reportId": report_id,
             "generatedAt": now_utc,
             "timezone": "UTC",
-            "toolVersion": "0.2.8",
+            "toolVersion": "0.2.9",
             "disclaimer": (
                 "ASN routing relationships and organizational associations can change over time. "
                 "Results reflect public sources at lookup time."
             ),
             "requestedAsns": cleaned,
-            "attributesModeled": [
-                "provider",
-                "customer",
-                "affiliate",
-                "subsidiary",
-                "shared_ownership",
-                "transit_provider",
-                "transit_customer",
-                "known_spammer",
-                "peer",
-                "unknown",
-            ],
         },
         "summary": {"paragraph": "", "highlights": []},
         "sources": [],
         "nodes": [],
         "edges": [],
         "findings": [],
-        "renderHints": {
-            "graph": {
-                "layout": "force",
-                "theme": "light",
-                "densityGuard": {"enabled": False, "edgeCount": 0, "visibleEdgeCount": 0, "rulesApplied": []},
-            }
-        },
     }
 
     asn_to_kvs: dict[int, list[tuple[str, str]]] = {}
@@ -295,9 +357,6 @@ if st.button("Analyze"):
                 "asn": asn,
                 "displayName": display,
                 "enrichment": {"asName": as_name, "orgName": org_name},
-                "evidence": [],
-                "identityMatches": [],
-                "tags": [],
             }
         )
 
@@ -307,10 +366,7 @@ if st.button("Analyze"):
     for customer_asn in cleaned:
         kvs = asn_to_kvs.get(customer_asn, [])
         import_lines = all_values(kvs, "import")
-        export_lines = all_values(kvs, "export")
-
         import_refs = parse_referenced_asns(import_lines)
-        export_refs = parse_referenced_asns(export_lines)
 
         for provider_asn in sorted(import_refs.intersection(input_set)):
             if provider_asn == customer_asn:
@@ -341,16 +397,9 @@ if st.button("Analyze"):
                             "sourceRefs": [
                                 {"sourceId": f"src-ripe-whois-as{customer_asn}", "locator": "whois:data.records[].import"}
                             ],
-                            "attributes": {
-                                "customerAsn": customer_asn,
-                                "providerAsn": provider_asn,
-                                "importLineCount": len(import_lines),
-                                "exportReferencesAlsoPresent": provider_asn in export_refs,
-                            },
                         }
                     ],
                     "confidence": {"score": 0.85, "label": "High"},
-                    "render": {"defaultVisible": True},
                 }
             )
 
@@ -358,7 +407,7 @@ if st.button("Analyze"):
     if edge_count == 0:
         report["summary"]["paragraph"] = (
             f"No declared routing-policy relationships were detected among the {len(cleaned)} input ASNs "
-            f"using the currently enabled collector (RIPEstat WHOIS)."
+            f"using RIPEstat WHOIS."
         )
     else:
         report["summary"]["paragraph"] = (
@@ -402,20 +451,20 @@ if st.button("Analyze"):
 
     st.subheader("Interactive graph")
 
-    # NEW: compact relationship table ABOVE the graph
+    # Sticky relationship table ABOVE graph
     if report["edges"]:
-        rel_rows = []
-        for e in report["edges"]:
-            rel_rows.append(
+        rel_df = pd.DataFrame(
+            [
                 {
                     "From": node_id_to_asn(e["fromNodeId"]),
                     "To": node_id_to_asn(e["toNodeId"]),
                     "Type": e["relationship"]["type"],
                     "Confidence": e["confidence"]["score"],
                 }
-            )
-        st.dataframe(pd.DataFrame(rel_rows), width="stretch", hide_index=True)
-        st.caption("Tip: hover over an edge in the graph for details.")
+                for e in report["edges"]
+            ]
+        )
+        render_sticky_relationship_table(rel_df)
     else:
         st.write("No edges to draw.")
 
