@@ -1,8 +1,6 @@
 import re
-import tempfile
 import uuid
 from datetime import datetime, timezone
-from pathlib import Path
 
 import pandas as pd
 import requests
@@ -89,20 +87,23 @@ def source_map(report: dict) -> dict[str, dict]:
 
 
 def render_interactive_graph(report: dict) -> None:
+    """
+    Render a PyVis graph.
+    Streamlit's st.iframe API has changed across versions; we avoid deprecated APIs,
+    but include a safe fallback if st.iframe signature differs.
+    """
     nodes = report.get("nodes", [])
     edges = report.get("edges", [])
 
     net = Network(height="520px", width="100%", bgcolor="#ffffff", font_color="#1f2937", directed=True)
     net.barnes_hut()
 
-    # Add nodes
     for n in nodes:
         asn = n.get("asn")
         label = n.get("displayName") or f"AS{asn}"
         title = f"AS{asn}\n{label}"
         net.add_node(n["id"], label=f"AS{asn}", title=title)
 
-    # Add edges
     for e in edges:
         from_id = e["fromNodeId"]
         to_id = e["toNodeId"]
@@ -112,16 +113,27 @@ def render_interactive_graph(report: dict) -> None:
 
         color = "#355CFF" if status == "supported" else "#9CA3AF"
         width = 2 if conf < 0.85 else 4
-
         net.add_edge(from_id, to_id, label=rel, title=f"{rel} (confidence {conf})", color=color, width=width)
 
     html = net.generate_html()
 
-    # Streamlit: st.components.v1.html is deprecated; use st.iframe
-    with tempfile.TemporaryDirectory() as d:
-        path = Path(d) / "graph.html"
-        path.write_text(html, encoding="utf-8")
-        st.iframe(str(path), height=560, scrolling=True)
+    # Preferred: st.iframe (Streamlit's recommended replacement), but the signature varies by version.
+    try:
+        # Many Streamlit versions accept an HTML string here.
+        st.iframe(html, height=560)
+    except TypeError:
+        # Fallback: try without keywords other than height (older/newer signature variants)
+        try:
+            st.iframe(html, 560)
+        except Exception as e:
+            # Last resort: attempt deprecated components API if still present
+            try:
+                import streamlit.components.v1 as components  # local import to avoid hard dependency
+                components.html(html, height=560, scrolling=True)
+            except Exception:
+                st.warning(f"Interactive graph failed to render ({type(e).__name__}). Showing DOT-like summary instead.")
+                st.write("Nodes:", [n["id"] for n in nodes])
+                st.write("Edges:", [(ed["fromNodeId"], ed["toNodeId"]) for ed in edges])
 
 
 count = st.number_input(
@@ -171,7 +183,7 @@ if st.button("Analyze"):
             "reportId": report_id,
             "generatedAt": now_utc,
             "timezone": "UTC",
-            "toolVersion": "0.2.2",
+            "toolVersion": "0.2.3",
             "disclaimer": (
                 "ASN routing relationships and organizational associations can change over time. "
                 "Results reflect public sources at lookup time."
