@@ -1,11 +1,12 @@
 import re
+import tempfile
 import uuid
 from datetime import datetime, timezone
+from pathlib import Path
 
 import pandas as pd
 import requests
 import streamlit as st
-import streamlit.components.v1 as components
 from pyvis.network import Network
 
 st.set_page_config(page_title="ASN Relationship Analyzer", layout="wide")
@@ -115,7 +116,12 @@ def render_interactive_graph(report: dict) -> None:
         net.add_edge(from_id, to_id, label=rel, title=f"{rel} (confidence {conf})", color=color, width=width)
 
     html = net.generate_html()
-    components.html(html, height=560, scrolling=True)
+
+    # Streamlit: st.components.v1.html is deprecated; use st.iframe
+    with tempfile.TemporaryDirectory() as d:
+        path = Path(d) / "graph.html"
+        path.write_text(html, encoding="utf-8")
+        st.iframe(str(path), height=560, scrolling=True)
 
 
 count = st.number_input(
@@ -165,7 +171,7 @@ if st.button("Analyze"):
             "reportId": report_id,
             "generatedAt": now_utc,
             "timezone": "UTC",
-            "toolVersion": "0.2.1",
+            "toolVersion": "0.2.2",
             "disclaimer": (
                 "ASN routing relationships and organizational associations can change over time. "
                 "Results reflect public sources at lookup time."
@@ -295,7 +301,10 @@ if st.button("Analyze"):
                             "id": f"ev-{edge_id}-import",
                             "type": "routing_policy_declared",
                             "tier": "A",
-                            "statement": f"AS{customer_asn} declares an import policy referencing AS{provider_asn} (import from AS{provider_asn}).",
+                            "statement": (
+                                f"AS{customer_asn} declares an import policy referencing AS{provider_asn} "
+                                f"(import from AS{provider_asn})."
+                            ),
                             "sourceRefs": [
                                 {"sourceId": f"src-ripe-whois-as{customer_asn}", "locator": "whois:data.records[].import"}
                             ],
@@ -358,7 +367,7 @@ if st.button("Analyze"):
                 "org-name": enr.get("orgName"),
             }
         )
-    st.dataframe(pd.DataFrame(node_rows), use_container_width=True, hide_index=True)
+    st.dataframe(pd.DataFrame(node_rows), width="stretch", hide_index=True)
 
     st.subheader("Edges")
     if report["edges"]:
@@ -374,13 +383,16 @@ if st.button("Analyze"):
                     "Confidence label": e["confidence"]["label"],
                 }
             )
-        st.dataframe(pd.DataFrame(edge_rows), use_container_width=True, hide_index=True)
+        st.dataframe(pd.DataFrame(edge_rows), width="stretch", hide_index=True)
 
         smap = source_map(report)
 
         st.subheader("Edge evidence & citations")
         for e in report["edges"]:
-            with st.expander(f"{e['id']}  ({e['relationship']['type']}, confidence {e['confidence']['score']})", expanded=True):
+            with st.expander(
+                f"{e['id']}  ({e['relationship']['type']}, confidence {e['confidence']['score']})",
+                expanded=True,
+            ):
                 for ev in e.get("evidence", []):
                     st.write(f"- Evidence: {ev.get('statement')}")
                     refs = ev.get("sourceRefs", [])
