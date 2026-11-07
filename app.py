@@ -2,8 +2,11 @@ import re
 import uuid
 from datetime import datetime, timezone
 
+import pandas as pd
 import requests
 import streamlit as st
+import streamlit.components.v1 as components
+from pyvis.network import Network
 
 st.set_page_config(page_title="ASN Relationship Analyzer", layout="wide")
 
@@ -52,10 +55,7 @@ def all_values(kvs: list[tuple[str, str]], key: str) -> list[str]:
 
 
 def parse_referenced_asns(policy_lines: list[str]) -> set[int]:
-    """
-    Extract referenced ASNs from policy strings.
-    Conservative: just extract any AS<number> in the line.
-    """
+    """Extract referenced ASNs from policy strings by finding AS<number> tokens."""
     refs: set[int] = set()
     for line in policy_lines:
         for m in re.finditer(r"\bAS(\d+)\b", line.upper()):
@@ -81,6 +81,41 @@ def normalize_asn_input(raw: str) -> int | None:
     if asn_int < 1 or asn_int > 4294967295:
         return None
     return asn_int
+
+
+def source_map(report: dict) -> dict[str, dict]:
+    return {s["id"]: s for s in report.get("sources", [])}
+
+
+def render_interactive_graph(report: dict) -> None:
+    nodes = report.get("nodes", [])
+    edges = report.get("edges", [])
+
+    net = Network(height="520px", width="100%", bgcolor="#ffffff", font_color="#1f2937", directed=True)
+    net.barnes_hut()
+
+    # Add nodes
+    for n in nodes:
+        asn = n.get("asn")
+        label = n.get("displayName") or f"AS{asn}"
+        title = f"AS{asn}\n{label}"
+        net.add_node(n["id"], label=f"AS{asn}", title=title)
+
+    # Add edges
+    for e in edges:
+        from_id = e["fromNodeId"]
+        to_id = e["toNodeId"]
+        rel = (e.get("relationship") or {}).get("type", "unknown")
+        conf = (e.get("confidence") or {}).get("score", 0)
+        status = e.get("status", "candidate")
+
+        color = "#355CFF" if status == "supported" else "#9CA3AF"
+        width = 2 if conf < 0.85 else 4
+
+        net.add_edge(from_id, to_id, label=rel, title=f"{rel} (confidence {conf})", color=color, width=width)
+
+    html = net.generate_html()
+    components.html(html, height=560, scrolling=True)
 
 
 count = st.number_input(
@@ -130,7 +165,7 @@ if st.button("Analyze"):
             "reportId": report_id,
             "generatedAt": now_utc,
             "timezone": "UTC",
-            "toolVersion": "0.2.0",
+            "toolVersion": "0.2.1",
             "disclaimer": (
                 "ASN routing relationships and organizational associations can change over time. "
                 "Results reflect public sources at lookup time."
@@ -149,10 +184,7 @@ if st.button("Analyze"):
                 "unknown",
             ],
         },
-        "summary": {
-            "paragraph": "",
-            "highlights": [],
-        },
+        "summary": {"paragraph": "", "highlights": []},
         "sources": [],
         "nodes": [],
         "edges": [],
@@ -161,12 +193,7 @@ if st.button("Analyze"):
             "graph": {
                 "layout": "force",
                 "theme": "light",
-                "densityGuard": {
-                    "enabled": False,
-                    "edgeCount": 0,
-                    "visibleEdgeCount": 0,
-                    "rulesApplied": [],
-                },
+                "densityGuard": {"enabled": False, "edgeCount": 0, "visibleEdgeCount": 0, "rulesApplied": []},
             }
         },
     }
@@ -198,7 +225,6 @@ if st.button("Analyze"):
                     sources_added.add(src_id)
 
             except Exception as e:
-                # Node still exists, but mark data quality issue
                 asn_to_kvs[asn] = []
                 report["summary"]["highlights"].append(
                     {
@@ -224,10 +250,7 @@ if st.button("Analyze"):
                 "id": f"asn-{asn}",
                 "asn": asn,
                 "displayName": display,
-                "enrichment": {
-                    "asName": as_name,
-                    "orgName": org_name,
-                },
+                "enrichment": {"asName": as_name, "orgName": org_name},
                 "evidence": [],
                 "identityMatches": [],
                 "tags": [],
@@ -235,7 +258,6 @@ if st.button("Analyze"):
         )
 
     # ---- Infer edges from declared routing policy references ----
-    # For each ASN A, if it "imports from ASB", infer B -> A as transit_provider_to_customer.
     input_set = set(cleaned)
     emitted_edges: set[tuple[int, int]] = set()
 
@@ -247,7 +269,6 @@ if st.button("Analyze"):
         import_refs = parse_referenced_asns(import_lines)
         export_refs = parse_referenced_asns(export_lines)
 
-        # Provider inference: customer imports routes from provider
         for provider_asn in sorted(import_refs.intersection(input_set)):
             if provider_asn == customer_asn:
                 continue
@@ -307,7 +328,7 @@ if st.button("Analyze"):
                 }
             )
 
-    # ---- Summarize ----
+    # ---- Summary ----
     edge_count = len(report["edges"])
     if edge_count == 0:
         report["summary"]["paragraph"] = (
@@ -319,26 +340,72 @@ if st.button("Analyze"):
             f"Detected {edge_count} relationship edge(s) among {len(cleaned)} input ASN(s) "
             f"based on declared routing policy (RIPEstat WHOIS)."
         )
-        report["summary"]["highlights"].append(
-            {
-                "type": "relationship",
-                "message": f"{edge_count} declared policy-based relationship(s) found.",
-                "relatedIds": [e["id"] for e in report["edges"]],
-            }
-        )
 
+    # ---- Render report (human-friendly) ----
     st.subheader("Summary")
     st.write(report["summary"]["paragraph"])
+    st.caption(report["reportMeta"]["disclaimer"])
 
-    st.subheader("Edges (detected)")
+    st.subheader("Nodes")
+    node_rows = []
+    for n in report["nodes"]:
+        enr = n.get("enrichment") or {}
+        node_rows.append(
+            {
+                "ASN": f"AS{n['asn']}",
+                "Display name": n.get("displayName"),
+                "as-name": enr.get("asName"),
+                "org-name": enr.get("orgName"),
+            }
+        )
+    st.dataframe(pd.DataFrame(node_rows), use_container_width=True, hide_index=True)
+
+    st.subheader("Edges")
     if report["edges"]:
+        edge_rows = []
         for e in report["edges"]:
-            st.write(
-                f"- {e['fromNodeId']} → {e['toNodeId']}: {e['relationship']['type']} "
-                f"(confidence {e['confidence']['score']})"
+            edge_rows.append(
+                {
+                    "From": e["fromNodeId"],
+                    "To": e["toNodeId"],
+                    "Type": e["relationship"]["type"],
+                    "Status": e["status"],
+                    "Confidence": e["confidence"]["score"],
+                    "Confidence label": e["confidence"]["label"],
+                }
             )
+        st.dataframe(pd.DataFrame(edge_rows), use_container_width=True, hide_index=True)
+
+        smap = source_map(report)
+
+        st.subheader("Edge evidence & citations")
+        for e in report["edges"]:
+            with st.expander(f"{e['id']}  ({e['relationship']['type']}, confidence {e['confidence']['score']})", expanded=True):
+                for ev in e.get("evidence", []):
+                    st.write(f"- Evidence: {ev.get('statement')}")
+                    refs = ev.get("sourceRefs", [])
+                    if refs:
+                        st.write("  - Citations:")
+                        for r in refs:
+                            src = smap.get(r["sourceId"])
+                            if not src:
+                                st.write(f"    - {r['sourceId']}")
+                                continue
+                            loc = r.get("locator")
+                            loc_txt = f" (locator: {loc})" if loc else ""
+                            st.write(f"    - [{src['tier']}] {src['title']}{loc_txt}: {src['uri']}")
     else:
         st.write("No edges detected.")
 
-    st.subheader("Report JSON")
-    st.json(report)
+    st.subheader("Interactive graph")
+    render_interactive_graph(report)
+
+    st.subheader("Sources (citations)")
+    if report["sources"]:
+        for s in report["sources"]:
+            st.write(f"- [{s['tier']}] {s['title']}: {s['uri']}")
+    else:
+        st.write("No sources recorded.")
+
+    with st.expander("Report JSON (debug)", expanded=False):
+        st.json(report)
