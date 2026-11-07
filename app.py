@@ -1,6 +1,6 @@
 import streamlit as st
 
-st.set_page_config(page_title="ASN Relationship Tool", layout="wide")
+st.set_page_config(page_title="ART - The ASN Relationship Tool)", layout="wide")
 
 st.title("ASN Relationship Tool")
 st.caption("Input a mximum of 10 ASNs")
