@@ -1,4 +1,6 @@
 import streamlit as st
+import uuid                                    # added manually
+from datetime import datetime, timezone        # added manually
 
 st.set_page_config(page_title="ART - The ASN Relationship Tool)", layout="wide")
 
@@ -30,13 +32,79 @@ if st.button("Analyze"):
     if errors:
         st.error("Please fix the following:\n" + "\n".join([f"- {e}" for e in errors]))
     else:
-        st.success("Inputs accepted.")
-        st.write("ASNs:", cleaned)
+        # --- 1) Build a stub report JSON object ---
+        report_id = str(uuid.uuid4())
+        now_utc = datetime.now(timezone.utc).isoformat()
 
-        # Stub output for now
+        report = {
+            "reportMeta": {
+                "reportId": report_id,
+                "generatedAt": now_utc,
+                "timezone": "UTC",
+                "toolVersion": "0.1.0",
+                "disclaimer": (
+                    "ASN routing relationships and organizational associations can change over time. "
+                    "Results reflect public sources at lookup time."
+                ),
+                "requestedAsns": cleaned,
+                "attributesModeled": [
+                    "provider",
+                    "customer",
+                    "affiliate",
+                    "subsidiary",
+                    "shared_ownership",
+                    "transit_provider",
+                    "transit_customer",
+                    "known_spammer",
+                    "peer",
+                    "unknown"
+                ]
+            },
+            "summary": {
+                "paragraph": (
+                    f"Stub report generated for {len(cleaned)} ASN(s): "
+                    + ", ".join([f'AS{a}' for a in cleaned])
+                    + ". Live data collectors not enabled yet."
+                ),
+                "highlights": [
+                    {
+                        "type": "data_quality",
+                        "message": "This is a stub report (no external lookups performed yet).",
+                        "relatedIds": []
+                    }
+                ]
+            },
+            "sources": [],
+            "nodes": [
+                {
+                    "id": f"asn-{a}",
+                    "asn": a,
+                    "displayName": f"AS{a}",
+                    "enrichment": {},
+                    "evidence": [],
+                    "identityMatches": [],
+                    "tags": []
+                }
+                for a in cleaned
+            ],
+            "edges": [],
+            "findings": [],
+            "renderHints": {
+                "graph": {
+                    "layout": "force",
+                    "theme": "light",
+                    "densityGuard": {
+                        "enabled": False,
+                        "edgeCount": 0,
+                        "visibleEdgeCount": 0,
+                        "rulesApplied": []
+                    }
+                }
+            }
+        }
+
         st.subheader("Summary")
-        st.write("This is a stub summary. Next step is to add live data collectors and inference.")
+        st.write(report["summary"]["paragraph"])
 
-        st.subheader("Graph (stub)")
-        st.info("Graph rendering will be added after the report JSON model is implemented.")
-
+        st.subheader("Report JSON (stub)")
+        st.json(report)
