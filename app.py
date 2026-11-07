@@ -93,19 +93,29 @@ def source_map(report: dict) -> dict[str, dict]:
 def render_interactive_graph(report: dict) -> None:
     """
     Render the graph using PyVis and embed as an HTML string with st.iframe.
-    Streamlit's st.iframe supports embedding raw HTML strings directly. ([docs.streamlit.io](https://docs.streamlit.io/develop/api-reference/text/st.iframe?utm_source=openai))
+
+    Updates requested:
+    - Larger text (roughly doubled)
+    - Visible zoom +/- controls via vis.js navigationButtons
     """
     nodes = report.get("nodes", [])
     edges = report.get("edges", [])
 
-    net = Network(height="520px", width="100%", bgcolor="#ffffff", font_color="#1f2937", directed=True)
-    net.barnes_hut()
+    net = Network(height="560px", width="100%", bgcolor="#ffffff", font_color="#111827", directed=True)
+
+    # Physics tuned for small graphs; you can adjust later
+    net.barnes_hut(gravity=-30000, central_gravity=0.3, spring_length=180, spring_strength=0.03, damping=0.09)
 
     for n in nodes:
         asn = n.get("asn")
         label = n.get("displayName") or f"AS{asn}"
         title = f"AS{asn}\n{label}"
-        net.add_node(n["id"], label=f"AS{asn}", title=title)
+        net.add_node(
+            n["id"],
+            label=f"AS{asn}",
+            title=title,
+            shape="dot",
+        )
 
     for e in edges:
         from_id = e["fromNodeId"]
@@ -117,10 +127,44 @@ def render_interactive_graph(report: dict) -> None:
         color = "#355CFF" if status == "supported" else "#9CA3AF"
         width = 2 if conf < 0.85 else 4
 
-        net.add_edge(from_id, to_id, label=rel, title=f"{rel} (confidence {conf})", color=color, width=width)
+        net.add_edge(
+            from_id,
+            to_id,
+            label=rel,
+            title=f"{rel} (confidence {conf})",
+            color=color,
+            width=width,
+            arrows="to",
+        )
+
+    # vis.js options: font sizes + zoom controls + keyboard nav
+    # (Font sizes here are roughly ~2x typical defaults.)
+    net.set_options(
+        """
+        {
+          "nodes": {
+            "font": { "size": 28, "face": "Arial", "color": "#111827" },
+            "scaling": { "min": 12, "max": 48 },
+            "borderWidth": 2
+          },
+          "edges": {
+            "font": { "size": 20, "face": "Arial", "align": "middle", "color": "#111827", "strokeWidth": 0 },
+            "smooth": { "type": "dynamic" }
+          },
+          "interaction": {
+            "hover": true,
+            "tooltipDelay": 100,
+            "navigationButtons": true,
+            "keyboard": { "enabled": true },
+            "zoomView": true,
+            "dragView": true
+          }
+        }
+        """
+    )
 
     html = net.generate_html()
-    st.iframe(html, width="stretch", height=560)
+    st.iframe(html, width="stretch", height=620)
 
 
 count = st.number_input(
@@ -168,7 +212,7 @@ if st.button("Analyze"):
             "reportId": report_id,
             "generatedAt": now_utc,
             "timezone": "UTC",
-            "toolVersion": "0.2.5",
+            "toolVersion": "0.2.6",
             "disclaimer": (
                 "ASN routing relationships and organizational associations can change over time. "
                 "Results reflect public sources at lookup time."
