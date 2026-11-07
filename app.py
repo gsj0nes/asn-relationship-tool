@@ -119,7 +119,7 @@ def render_interactive_graph(report: dict) -> None:
 
     # Streamlit versions differ; this pattern is robust across many versions
     try:
-        st.components.v1.html(html, height=560, scrolling=True)
+        st.iframe(html, height=560, scrolling=True)
     except Exception:
         st.info("Graph rendering unavailable in this Streamlit runtime.")
 
