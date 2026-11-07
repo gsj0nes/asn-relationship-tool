@@ -4,9 +4,9 @@ from datetime import datetime, timezone
 
 import streamlit as st
 
-st.set_page_config(page_title="ASN Relationship Analyzer", layout="wide")
+st.set_page_config(page_title="|ART| - The ASN Relationship Tool", layout="wide")
 
-st.title("ASN Relationship Analyzer")
+st.title("|ART| - The ASN Relationship Tool")
 st.caption("Maximum of 10")
 
 count = st.number_input(
