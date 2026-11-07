@@ -1,6 +1,8 @@
-import streamlit as st
+import re                                      # added manually
 import uuid                                    # added manually
 from datetime import datetime, timezone        # added manually
+
+import streamlit as st
 
 st.set_page_config(page_title="|ART| The ASN Relationship Tool", layout="wide")
 
@@ -19,15 +21,34 @@ for i in range(int(count)):
 if st.button("Analyze"):
     cleaned = []
     errors = []
-    for idx, raw in enumerate(asns, start=1):
-        if not raw:
-            errors.append(f"ASN #{idx} is empty.")
-            continue
-        raw2 = raw.upper().replace("AS", "").strip()
-        if not raw2.isdigit():
-            errors.append(f"ASN #{idx} is not a valid number: '{raw}'.")
-            continue
-        cleaned.append(int(raw2))
+
+for idx, raw in enumerate(asns, start=1):
+    if not raw:
+        errors.append(f"ASN #{idx} is empty.")
+        continue
+
+    # Accept inputs like: "35133", "AS35133", "as 35133", "ASN35133"
+    s = raw.strip().upper()
+
+    # Extract the first continuous digit block
+    m = re.search(r"(\d+)", s)
+    if not m:
+        errors.append(f"ASN #{idx} is not valid: '{raw}' (no digits found).")
+        continue
+
+    asn_int = int(m.group(1))
+
+    # Basic sanity check (32-bit ASN range)
+    if asn_int < 1 or asn_int > 4294967295:
+        errors.append(f"ASN #{idx} is out of range: '{raw}' -> {asn_int}.")
+        continue
+
+    cleaned.append(asn_int)
+
+    # Optional: prevent duplicates
+    dupes = [a for a in set(cleaned) if cleaned.count(a) > 1]
+    if dupes:
+        errors.append("Duplicate ASN(s) provided: " + ", ".join([f"AS{a}" for a in sorted(dupes)]))
 
     if errors:
         st.error("Please fix the following:\n" + "\n".join([f"- {e}" for e in errors]))
