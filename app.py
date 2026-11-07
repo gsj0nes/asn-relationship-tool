@@ -91,6 +91,10 @@ def source_map(report: dict) -> dict[str, dict]:
 
 
 def render_interactive_graph(report: dict) -> None:
+    """
+    Render the graph using PyVis and embed as an HTML string with st.iframe.
+    Streamlit's st.iframe supports embedding raw HTML strings directly. ([docs.streamlit.io](https://docs.streamlit.io/develop/api-reference/text/st.iframe?utm_source=openai))
+    """
     nodes = report.get("nodes", [])
     edges = report.get("edges", [])
 
@@ -116,12 +120,7 @@ def render_interactive_graph(report: dict) -> None:
         net.add_edge(from_id, to_id, label=rel, title=f"{rel} (confidence {conf})", color=color, width=width)
 
     html = net.generate_html()
-
-    # Streamlit versions differ; this pattern is robust across many versions
-    try:
-        st.iframe(html, height=560, scrolling=True)
-    except Exception:
-        st.info("Graph rendering unavailable in this Streamlit runtime.")
+    st.iframe(html, width="stretch", height=560)
 
 
 count = st.number_input(
@@ -169,7 +168,7 @@ if st.button("Analyze"):
             "reportId": report_id,
             "generatedAt": now_utc,
             "timezone": "UTC",
-            "toolVersion": "0.2.4",
+            "toolVersion": "0.2.5",
             "disclaimer": (
                 "ASN routing relationships and organizational associations can change over time. "
                 "Results reflect public sources at lookup time."
@@ -398,9 +397,7 @@ if st.button("Analyze"):
                                 continue
                             loc = r.get("locator")
                             loc_txt = f" (locator: {loc})" if loc else ""
-                            # Render as a clickable link
                             st.markdown(f"    - [{src['tier']}] [{src['title']}]({src['uri']}){loc_txt}")
-
     else:
         st.write("No edges detected.")
 
