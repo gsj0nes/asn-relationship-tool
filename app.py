@@ -12,13 +12,17 @@ st.set_page_config(page_title="ASN Relationship Analyzer", layout="wide")
 st.title("ASN Relationship Analyzer")
 st.caption("Maximum of 10")
 
-RIPESTAT_WHOIS_URL = "https://stat.ripe.net/data/whois/data.json?resource=AS{asn}"
+# API endpoint used for machine-readable collection
+RIPESTAT_WHOIS_API_URL = "https://stat.ripe.net/data/whois/data.json?resource=AS{asn}"
+
+# Human-friendly page used for citations/links in the UI
+RIPESTAT_WHOIS_WIDGET_URL = "https://stat.ripe.net/widget/whois#w.resource=AS{asn}&w.show=maximized"
 
 
 @st.cache_data(ttl=60 * 60)
 def fetch_ripestat_whois(asn: int) -> dict:
     """Fetch WHOIS-style data for an ASN from RIPEstat. Cached for 1 hour."""
-    url = RIPESTAT_WHOIS_URL.format(asn=asn)
+    url = RIPESTAT_WHOIS_API_URL.format(asn=asn)
     r = requests.get(url, timeout=15)
     r.raise_for_status()
     return r.json()
@@ -87,11 +91,6 @@ def source_map(report: dict) -> dict[str, dict]:
 
 
 def render_interactive_graph(report: dict) -> None:
-    """
-    Render a PyVis graph.
-    Streamlit's st.iframe API has changed across versions; we avoid deprecated APIs,
-    but include a safe fallback if st.iframe signature differs.
-    """
     nodes = report.get("nodes", [])
     edges = report.get("edges", [])
 
@@ -113,27 +112,16 @@ def render_interactive_graph(report: dict) -> None:
 
         color = "#355CFF" if status == "supported" else "#9CA3AF"
         width = 2 if conf < 0.85 else 4
+
         net.add_edge(from_id, to_id, label=rel, title=f"{rel} (confidence {conf})", color=color, width=width)
 
     html = net.generate_html()
 
-    # Preferred: st.iframe (Streamlit's recommended replacement), but the signature varies by version.
+    # Streamlit versions differ; this pattern is robust across many versions
     try:
-        # Many Streamlit versions accept an HTML string here.
-        st.iframe(html, height=560)
-    except TypeError:
-        # Fallback: try without keywords other than height (older/newer signature variants)
-        try:
-            st.iframe(html, 560)
-        except Exception as e:
-            # Last resort: attempt deprecated components API if still present
-            try:
-                import streamlit.components.v1 as components  # local import to avoid hard dependency
-                components.html(html, height=560, scrolling=True)
-            except Exception:
-                st.warning(f"Interactive graph failed to render ({type(e).__name__}). Showing DOT-like summary instead.")
-                st.write("Nodes:", [n["id"] for n in nodes])
-                st.write("Edges:", [(ed["fromNodeId"], ed["toNodeId"]) for ed in edges])
+        st.components.v1.html(html, height=560, scrolling=True)
+    except Exception:
+        st.info("Graph rendering unavailable in this Streamlit runtime.")
 
 
 count = st.number_input(
@@ -152,7 +140,6 @@ for i in range(int(count)):
         asns_raw.append(asn_text)
 
 if st.button("Analyze"):
-    # ---- Validate inputs ----
     cleaned: list[int] = []
     errors: list[str] = []
 
@@ -174,7 +161,6 @@ if st.button("Analyze"):
         st.error("Please fix the following:\n" + "\n".join([f"- {e}" for e in errors]))
         st.stop()
 
-    # ---- Start report object ----
     report_id = str(uuid.uuid4())
     now_utc = datetime.now(timezone.utc).isoformat()
 
@@ -183,7 +169,7 @@ if st.button("Analyze"):
             "reportId": report_id,
             "generatedAt": now_utc,
             "timezone": "UTC",
-            "toolVersion": "0.2.3",
+            "toolVersion": "0.2.4",
             "disclaimer": (
                 "ASN routing relationships and organizational associations can change over time. "
                 "Results reflect public sources at lookup time."
@@ -216,14 +202,13 @@ if st.button("Analyze"):
         },
     }
 
-    # ---- Collect WHOIS data (RIPEstat) for each ASN ----
     asn_to_kvs: dict[int, list[tuple[str, str]]] = {}
     sources_added: set[str] = set()
 
     with st.spinner("Looking up ASN records (RIPEstat WHOIS)..."):
         for asn in cleaned:
             src_id = f"src-ripe-whois-as{asn}"
-            src_uri = RIPESTAT_WHOIS_URL.format(asn=asn)
+            src_uri_human = RIPESTAT_WHOIS_WIDGET_URL.format(asn=asn)
 
             try:
                 whois_json = fetch_ripestat_whois(asn)
@@ -234,8 +219,8 @@ if st.button("Analyze"):
                     report["sources"].append(
                         {
                             "id": src_id,
-                            "title": f"RIPEstat WHOIS JSON for AS{asn}",
-                            "uri": src_uri,
+                            "title": f"RIPEstat WHOIS widget for AS{asn}",
+                            "uri": src_uri_human,
                             "tier": "A",
                             "retrievedAt": now_utc,
                         }
@@ -252,7 +237,6 @@ if st.button("Analyze"):
                     }
                 )
 
-    # ---- Build nodes with basic enrichment ----
     for asn in cleaned:
         kvs = asn_to_kvs.get(asn, [])
         as_name = first_value(kvs, "as-name")
@@ -275,7 +259,6 @@ if st.button("Analyze"):
             }
         )
 
-    # ---- Infer edges from declared routing policy references ----
     input_set = set(cleaned)
     emitted_edges: set[tuple[int, int]] = set()
 
@@ -349,7 +332,6 @@ if st.button("Analyze"):
                 }
             )
 
-    # ---- Summary ----
     edge_count = len(report["edges"])
     if edge_count == 0:
         report["summary"]["paragraph"] = (
@@ -362,7 +344,6 @@ if st.button("Analyze"):
             f"based on declared routing policy (RIPEstat WHOIS)."
         )
 
-    # ---- Render report (human-friendly) ----
     st.subheader("Summary")
     st.write(report["summary"]["paragraph"])
     st.caption(report["reportMeta"]["disclaimer"])
@@ -417,7 +398,9 @@ if st.button("Analyze"):
                                 continue
                             loc = r.get("locator")
                             loc_txt = f" (locator: {loc})" if loc else ""
-                            st.write(f"    - [{src['tier']}] {src['title']}{loc_txt}: {src['uri']}")
+                            # Render as a clickable link
+                            st.markdown(f"    - [{src['tier']}] [{src['title']}]({src['uri']}){loc_txt}")
+
     else:
         st.write("No edges detected.")
 
@@ -427,7 +410,7 @@ if st.button("Analyze"):
     st.subheader("Sources (citations)")
     if report["sources"]:
         for s in report["sources"]:
-            st.write(f"- [{s['tier']}] {s['title']}: {s['uri']}")
+            st.markdown(f"- [{s['tier']}] [{s['title']}]({s['uri']})")
     else:
         st.write("No sources recorded.")
 
