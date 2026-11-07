@@ -90,32 +90,34 @@ def source_map(report: dict) -> dict[str, dict]:
     return {s["id"]: s for s in report.get("sources", [])}
 
 
+def node_id_to_asn(node_id: str) -> str:
+    # node_id format is "asn-<number>" in this app
+    try:
+        return f"AS{int(node_id.split('-', 1)[1])}"
+    except Exception:
+        return node_id
+
+
 def render_interactive_graph(report: dict) -> None:
     """
     Render the graph using PyVis and embed as an HTML string with st.iframe.
 
-    Updates requested:
-    - Larger text (roughly doubled)
-    - Visible zoom +/- controls via vis.js navigationButtons
+    Edge labels are NOT drawn on edges to prevent overlap.
+    Relationship types are shown in a compact table above the graph,
+    and in the edge hover tooltip.
     """
     nodes = report.get("nodes", [])
     edges = report.get("edges", [])
 
     net = Network(height="560px", width="100%", bgcolor="#ffffff", font_color="#111827", directed=True)
 
-    # Physics tuned for small graphs; you can adjust later
     net.barnes_hut(gravity=-30000, central_gravity=0.3, spring_length=180, spring_strength=0.03, damping=0.09)
 
     for n in nodes:
         asn = n.get("asn")
         label = n.get("displayName") or f"AS{asn}"
         title = f"AS{asn}\n{label}"
-        net.add_node(
-            n["id"],
-            label=f"AS{asn}",
-            title=title,
-            shape="dot",
-        )
+        net.add_node(n["id"], label=f"AS{asn}", title=title, shape="dot")
 
     for e in edges:
         from_id = e["fromNodeId"]
@@ -130,15 +132,13 @@ def render_interactive_graph(report: dict) -> None:
         net.add_edge(
             from_id,
             to_id,
-            label=rel,
-            title=f"{rel} (confidence {conf})",
+            label="",
+            title=f"{node_id_to_asn(from_id)} → {node_id_to_asn(to_id)}\n{rel}\nconfidence {conf}",
             color=color,
             width=width,
             arrows="to",
         )
 
-    # vis.js options: font sizes + zoom controls + keyboard nav
-    # (Font sizes here are roughly ~2x typical defaults.)
     net.set_options(
         """
         {
@@ -148,7 +148,6 @@ def render_interactive_graph(report: dict) -> None:
             "borderWidth": 2
           },
           "edges": {
-            "font": { "size": 20, "face": "Arial", "align": "middle", "color": "#111827", "strokeWidth": 0 },
             "smooth": { "type": "dynamic" }
           },
           "interaction": {
@@ -212,7 +211,7 @@ if st.button("Analyze"):
             "reportId": report_id,
             "generatedAt": now_utc,
             "timezone": "UTC",
-            "toolVersion": "0.2.6",
+            "toolVersion": "0.2.8",
             "disclaimer": (
                 "ASN routing relationships and organizational associations can change over time. "
                 "Results reflect public sources at lookup time."
@@ -328,11 +327,7 @@ if st.button("Analyze"):
                     "id": edge_id,
                     "fromNodeId": f"asn-{provider_asn}",
                     "toNodeId": f"asn-{customer_asn}",
-                    "relationship": {
-                        "type": "transit_provider_to_customer",
-                        "directionSemantics": "From provides transit/connectivity to To (inferred from declared import policy).",
-                        "attributes": ["transit_provider", "transit_customer"],
-                    },
+                    "relationship": {"type": "transit_provider_to_customer"},
                     "status": "supported",
                     "evidence": [
                         {
@@ -354,24 +349,8 @@ if st.button("Analyze"):
                             },
                         }
                     ],
-                    "confidence": {
-                        "score": 0.85,
-                        "label": "High",
-                        "breakdown": [
-                            {
-                                "delta": 0.85,
-                                "reason": "Explicit declared routing policy references another input ASN in import lines (Tier A).",
-                                "sourceIds": [f"src-ripe-whois-as{customer_asn}"],
-                                "weightClass": "strong",
-                            }
-                        ],
-                    },
-                    "render": {
-                        "style": "solid",
-                        "color": "#355CFF",
-                        "label": "transit/provider (declared)",
-                        "defaultVisible": True,
-                    },
+                    "confidence": {"score": 0.85, "label": "High"},
+                    "render": {"defaultVisible": True},
                 }
             )
 
@@ -411,23 +390,44 @@ if st.button("Analyze"):
         for e in report["edges"]:
             edge_rows.append(
                 {
-                    "From": e["fromNodeId"],
-                    "To": e["toNodeId"],
+                    "From": node_id_to_asn(e["fromNodeId"]),
+                    "To": node_id_to_asn(e["toNodeId"]),
                     "Type": e["relationship"]["type"],
-                    "Status": e["status"],
                     "Confidence": e["confidence"]["score"],
-                    "Confidence label": e["confidence"]["label"],
                 }
             )
         st.dataframe(pd.DataFrame(edge_rows), width="stretch", hide_index=True)
+    else:
+        st.write("No edges detected.")
 
-        smap = source_map(report)
+    st.subheader("Interactive graph")
 
-        st.subheader("Edge evidence & citations")
+    # NEW: compact relationship table ABOVE the graph
+    if report["edges"]:
+        rel_rows = []
+        for e in report["edges"]:
+            rel_rows.append(
+                {
+                    "From": node_id_to_asn(e["fromNodeId"]),
+                    "To": node_id_to_asn(e["toNodeId"]),
+                    "Type": e["relationship"]["type"],
+                    "Confidence": e["confidence"]["score"],
+                }
+            )
+        st.dataframe(pd.DataFrame(rel_rows), width="stretch", hide_index=True)
+        st.caption("Tip: hover over an edge in the graph for details.")
+    else:
+        st.write("No edges to draw.")
+
+    render_interactive_graph(report)
+
+    smap = source_map(report)
+    st.subheader("Edge evidence & citations")
+    if report["edges"]:
         for e in report["edges"]:
             with st.expander(
                 f"{e['id']}  ({e['relationship']['type']}, confidence {e['confidence']['score']})",
-                expanded=True,
+                expanded=False,
             ):
                 for ev in e.get("evidence", []):
                     st.write(f"- Evidence: {ev.get('statement')}")
@@ -443,10 +443,7 @@ if st.button("Analyze"):
                             loc_txt = f" (locator: {loc})" if loc else ""
                             st.markdown(f"    - [{src['tier']}] [{src['title']}]({src['uri']}){loc_txt}")
     else:
-        st.write("No edges detected.")
-
-    st.subheader("Interactive graph")
-    render_interactive_graph(report)
+        st.write("No edge evidence available (no edges detected).")
 
     st.subheader("Sources (citations)")
     if report["sources"]:
