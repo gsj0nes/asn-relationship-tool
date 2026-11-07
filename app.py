@@ -2,7 +2,7 @@ import streamlit as st
 
 st.set_page_config(page_title="ART - The ASN Relationship Tool)", layout="wide")
 
-st.title("FART - The ASN Relationship Tool")
+st.title("ART - The ASN Relationship Tool")
 st.caption("Input a mximum of 10 ASNs")
 
 count = st.number_input("How many ASNs would you like to compare?", min_value=1, max_value=10, value=2, step=1)
