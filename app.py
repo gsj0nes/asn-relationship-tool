@@ -67,7 +67,7 @@ st.markdown(
 )
 
 st.title("|ART| - The ASN Relationship Tool")
-st.caption("Maximum of 10")
+st.caption("Enter a maximum of 10 ASNs")
 
 RIPESTAT_WHOIS_API_URL = "https://stat.ripe.net/data/whois/data.json?resource=AS{asn}"
 RIPESTAT_WHOIS_WIDGET_URL = "https://stat.ripe.net/widget/whois#w.resource=AS{asn}&w.show=maximized"
