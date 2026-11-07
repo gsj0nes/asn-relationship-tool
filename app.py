@@ -9,6 +9,8 @@ from pyvis.network import Network
 
 st.set_page_config(page_title="ASN Relationship Analyzer", layout="wide")
 
+ACCENT_BLUE = "#355CFF"
+
 # Page-level CSS:
 # - Sticky relationship table (stays visible when you scroll)
 # - Make it compact + readable
@@ -37,8 +39,8 @@ st.markdown(
 }
 
 .sticky-rel-table {
-  max-height: 220px;         /* keeps it compact */
-  overflow: auto;            /* internal scroll if many edges */
+  max-height: 220px;
+  overflow: auto;
   border-radius: 8px;
 }
 
@@ -156,7 +158,6 @@ def node_id_to_asn(node_id: str) -> str:
 
 
 def render_sticky_relationship_table(rel_df: pd.DataFrame) -> None:
-    # Convert to HTML and wrap in a sticky container
     table_html = rel_df.to_html(index=False, escape=True)
     st.markdown(
         f"""
@@ -181,8 +182,8 @@ def render_interactive_graph(report: dict) -> None:
     """
     Render the graph using PyVis and embed as an HTML string with st.iframe.
 
-    Changes made to address accidental scroll/zoom:
-    - clickToUse=true: graph only responds after you click it (reduces unintended zoom while scrolling).
+    - clickToUse=true prevents accidental scroll-wheel zoom while scrolling the page.
+    - CSS injected into the generated HTML changes nav buttons from green to ACCENT_BLUE.
     """
     nodes = report.get("nodes", [])
     edges = report.get("edges", [])
@@ -203,10 +204,9 @@ def render_interactive_graph(report: dict) -> None:
         conf = (e.get("confidence") or {}).get("score", 0)
         status = e.get("status", "candidate")
 
-        color = "#355CFF" if status == "supported" else "#9CA3AF"
+        color = ACCENT_BLUE if status == "supported" else "#9CA3AF"
         width = 2 if conf < 0.85 else 4
 
-        # Keep relationship off the edge line (prevents overlap). Put in tooltip.
         net.add_edge(
             from_id,
             to_id,
@@ -217,33 +217,66 @@ def render_interactive_graph(report: dict) -> None:
             arrows="to",
         )
 
-    # Options: larger fonts, navigation buttons, and click-to-use.
     net.set_options(
-        """
-        {
+        f"""
+        {{
           "clickToUse": true,
-          "nodes": {
-            "font": { "size": 28, "face": "Arial", "color": "#111827" },
-            "scaling": { "min": 12, "max": 48 },
-            "borderWidth": 2
-          },
-          "edges": {
-            "smooth": { "type": "dynamic" }
-          },
-          "interaction": {
+          "nodes": {{
+            "font": {{ "size": 28, "face": "Arial", "color": "#111827" }},
+            "scaling": {{ "min": 12, "max": 48 }},
+            "borderWidth": 2,
+            "color": {{
+              "border": "{ACCENT_BLUE}",
+              "background": "{ACCENT_BLUE}"
+            }}
+          }},
+          "edges": {{
+            "smooth": {{ "type": "dynamic" }}
+          }},
+          "interaction": {{
             "hover": true,
             "tooltipDelay": 100,
             "navigationButtons": true,
-            "keyboard": { "enabled": true },
+            "keyboard": {{ "enabled": true }},
             "zoomSpeed": 0.3,
             "zoomView": true,
             "dragView": true
-          }
-        }
+          }}
+        }}
         """
     )
 
     html = net.generate_html()
+
+    # Inject CSS to recolor the navigation buttons.
+    nav_css = f"""
+<style>
+/* vis.js navigation buttons (override default green) */
+div.vis-network div.vis-navigation div.vis-button {{
+  background-color: {ACCENT_BLUE} !important;
+  border: 1px solid {ACCENT_BLUE} !important;
+  border-radius: 8px !important;
+  box-shadow: none !important;
+}}
+div.vis-network div.vis-navigation div.vis-button:hover {{
+  filter: brightness(0.92);
+}}
+div.vis-network div.vis-navigation div.vis-button:active {{
+  filter: brightness(0.85);
+}}
+/* Disabled state */
+div.vis-network div.vis-navigation div.vis-button.vis-button-disabled {{
+  background-color: #A5B4FC !important;
+  border-color: #A5B4FC !important;
+  opacity: 0.65 !important;
+}}
+</style>
+"""
+    if "</head>" in html:
+        html = html.replace("</head>", nav_css + "\n</head>")
+    else:
+        html = nav_css + "\n" + html
+
     st.iframe(html, width="stretch", height=620)
 
 
@@ -292,7 +325,7 @@ if st.button("Analyze"):
             "reportId": report_id,
             "generatedAt": now_utc,
             "timezone": "UTC",
-            "toolVersion": "0.2.9",
+            "toolVersion": "0.3.0",
             "disclaimer": (
                 "ASN routing relationships and organizational associations can change over time. "
                 "Results reflect public sources at lookup time."
@@ -451,7 +484,6 @@ if st.button("Analyze"):
 
     st.subheader("Interactive graph")
 
-    # Sticky relationship table ABOVE graph
     if report["edges"]:
         rel_df = pd.DataFrame(
             [
