@@ -7,7 +7,7 @@ import requests
 import streamlit as st
 from pyvis.network import Network
 
-st.set_page_config(page_title="ASN Relationship Analyzer", layout="wide")
+st.set_page_config(page_title="|ART| - The ASN Relationship Tool", layout="wide")
 
 ACCENT_BLUE = "#355CFF"
 
@@ -66,7 +66,7 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-st.title("ASN Relationship Analyzer")
+st.title("|ART| - The ASN Relationship Tool")
 st.caption("Maximum of 10")
 
 RIPESTAT_WHOIS_API_URL = "https://stat.ripe.net/data/whois/data.json?resource=AS{asn}"
@@ -510,5 +510,5 @@ if st.button("Analyze"):
     else:
         st.write("No sources recorded.")
 
-    with st.expander("Report JSON (debug)", expanded=False):
+    with st.expander("debug JSON", expanded=False):
         st.json(report)
