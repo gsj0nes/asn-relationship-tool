@@ -11,9 +11,7 @@ st.set_page_config(page_title="ASN Relationship Analyzer", layout="wide")
 
 ACCENT_BLUE = "#355CFF"
 
-# Page-level CSS:
-# - Sticky relationship table (stays visible when you scroll)
-# - Make it compact + readable
+# Page-level CSS: sticky relationship table
 st.markdown(
     """
 <style>
@@ -71,16 +69,12 @@ st.markdown(
 st.title("ASN Relationship Analyzer")
 st.caption("Maximum of 10")
 
-# API endpoint used for machine-readable collection
 RIPESTAT_WHOIS_API_URL = "https://stat.ripe.net/data/whois/data.json?resource=AS{asn}"
-
-# Human-friendly page used for citations/links in the UI
 RIPESTAT_WHOIS_WIDGET_URL = "https://stat.ripe.net/widget/whois#w.resource=AS{asn}&w.show=maximized"
 
 
 @st.cache_data(ttl=60 * 60)
 def fetch_ripestat_whois(asn: int) -> dict:
-    """Fetch WHOIS-style data for an ASN from RIPEstat. Cached for 1 hour."""
     url = RIPESTAT_WHOIS_API_URL.format(asn=asn)
     r = requests.get(url, timeout=15)
     r.raise_for_status()
@@ -88,10 +82,6 @@ def fetch_ripestat_whois(asn: int) -> dict:
 
 
 def flatten_ripestat_records(whois_json: dict) -> list[tuple[str, str]]:
-    """
-    RIPEstat whois format: data.records is a list of records; each record is a list of {key,value}.
-    Return flattened [(key,value), ...].
-    """
     out: list[tuple[str, str]] = []
     records = (whois_json.get("data") or {}).get("records") or []
     for record in records:
@@ -117,7 +107,6 @@ def all_values(kvs: list[tuple[str, str]], key: str) -> list[str]:
 
 
 def parse_referenced_asns(policy_lines: list[str]) -> set[int]:
-    """Extract referenced ASNs from policy strings by finding AS<number> tokens."""
     refs: set[int] = set()
     for line in policy_lines:
         for m in re.finditer(r"\bAS(\d+)\b", line.upper()):
@@ -129,10 +118,6 @@ def parse_referenced_asns(policy_lines: list[str]) -> set[int]:
 
 
 def normalize_asn_input(raw: str) -> int | None:
-    """
-    Accept: '35133' or 'AS35133' or 'asn 35133' etc.
-    Extract first digit block.
-    """
     if not raw:
         return None
     s = raw.strip().upper()
@@ -150,7 +135,6 @@ def source_map(report: dict) -> dict[str, dict]:
 
 
 def node_id_to_asn(node_id: str) -> str:
-    # node_id format is "asn-<number>" in this app
     try:
         return f"AS{int(node_id.split('-', 1)[1])}"
     except Exception:
@@ -179,12 +163,6 @@ def render_sticky_relationship_table(rel_df: pd.DataFrame) -> None:
 
 
 def render_interactive_graph(report: dict) -> None:
-    """
-    Render the graph using PyVis and embed as an HTML string with st.iframe.
-
-    - clickToUse=true prevents accidental scroll-wheel zoom while scrolling the page.
-    - CSS injected into the generated HTML changes nav buttons from green to ACCENT_BLUE.
-    """
     nodes = report.get("nodes", [])
     edges = report.get("edges", [])
 
@@ -248,27 +226,26 @@ def render_interactive_graph(report: dict) -> None:
 
     html = net.generate_html()
 
-    # Inject CSS to recolor the navigation buttons.
+    # Keep button background white; recolor the green icon artwork to blue using a hue-rotate filter.
+    # White/gray remain essentially unchanged, but green shifts to blue.
     nav_css = f"""
 <style>
-/* vis.js navigation buttons (override default green) */
 div.vis-network div.vis-navigation div.vis-button {{
-  background-color: {ACCENT_BLUE} !important;
-  border: 1px solid {ACCENT_BLUE} !important;
+  background-color: #ffffff !important;
+  border: 1px solid #d1d5db !important;
   border-radius: 8px !important;
-  box-shadow: none !important;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.06) !important;
+
+  /* This is the key: turns the built-in green icon graphics to blue */
+  filter: hue-rotate(190deg) saturate(3.0) brightness(1.05) !important;
 }}
+
 div.vis-network div.vis-navigation div.vis-button:hover {{
-  filter: brightness(0.92);
+  border-color: {ACCENT_BLUE} !important;
 }}
-div.vis-network div.vis-navigation div.vis-button:active {{
-  filter: brightness(0.85);
-}}
-/* Disabled state */
+
 div.vis-network div.vis-navigation div.vis-button.vis-button-disabled {{
-  background-color: #A5B4FC !important;
-  border-color: #A5B4FC !important;
-  opacity: 0.65 !important;
+  filter: grayscale(1) opacity(0.55) !important;
 }}
 </style>
 """
@@ -325,7 +302,7 @@ if st.button("Analyze"):
             "reportId": report_id,
             "generatedAt": now_utc,
             "timezone": "UTC",
-            "toolVersion": "0.3.0",
+            "toolVersion": "0.3.1",
             "disclaimer": (
                 "ASN routing relationships and organizational associations can change over time. "
                 "Results reflect public sources at lookup time."
