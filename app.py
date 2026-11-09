@@ -7,7 +7,7 @@ import requests
 import streamlit as st
 from pyvis.network import Network
 
-st.set_page_config(page_title="|ART| The ASN Relationship Tool", layout="wide")
+st.set_page_config(page_title="|ART| ASN Relationship Tool", layout="wide")
 
 ACCENT_BLUE = "#355CFF"
 
@@ -66,11 +66,29 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-st.title("|ART| The ASN Relationship Tool")
-st.caption("Enter a maximum of 10 ASNs")
+st.title("|ART| ASN Relationship Tool")
+st.caption("Maximum of 10")
 
 RIPESTAT_WHOIS_API_URL = "https://stat.ripe.net/data/whois/data.json?resource=AS{asn}"
 RIPESTAT_WHOIS_WIDGET_URL = "https://stat.ripe.net/widget/whois#w.resource=AS{asn}&w.show=maximized"
+
+
+def get_query_param(name: str, default: str = "") -> str:
+    """
+    Streamlit query param API changed across versions.
+    This helper works in both newer and older runtimes.
+    """
+    try:
+        v = st.query_params.get(name, default)
+        if v is None:
+            return default
+        return str(v)
+    except Exception:
+        params = st.experimental_get_query_params()
+        vals = params.get(name)
+        if not vals:
+            return default
+        return str(vals[0])
 
 
 @st.cache_data(ttl=60 * 60)
@@ -227,7 +245,6 @@ def render_interactive_graph(report: dict) -> None:
     html = net.generate_html()
 
     # Keep button background white; recolor the green icon artwork to blue using a hue-rotate filter.
-    # White/gray remain essentially unchanged, but green shifts to blue.
     nav_css = f"""
 <style>
 div.vis-network div.vis-navigation div.vis-button {{
@@ -236,7 +253,7 @@ div.vis-network div.vis-navigation div.vis-button {{
   border-radius: 8px !important;
   box-shadow: 0 1px 2px rgba(0,0,0,0.06) !important;
 
-  /* This is the key: turns the built-in green icon graphics to blue */
+  /* Shift built-in green icon graphics to blue */
   filter: hue-rotate(190deg) saturate(3.0) brightness(1.05) !important;
 }}
 
@@ -302,7 +319,7 @@ if st.button("Analyze"):
             "reportId": report_id,
             "generatedAt": now_utc,
             "timezone": "UTC",
-            "toolVersion": "0.3.1",
+            "toolVersion": "0.3.5",
             "disclaimer": (
                 "ASN routing relationships and organizational associations can change over time. "
                 "Results reflect public sources at lookup time."
@@ -510,5 +527,10 @@ if st.button("Analyze"):
     else:
         st.write("No sources recorded.")
 
-    with st.expander("debug JSON", expanded=False):
+    # Debug view controlled by hyperlink
+    debug_flag = get_query_param("debug", "0").strip().lower() in ("1", "true", "yes", "on")
+    if not debug_flag:
+        st.markdown("[Show report JSON (debug)](?debug=1)")
+    else:
+        st.markdown("[Hide report JSON (debug)](?debug=0)")
         st.json(report)
