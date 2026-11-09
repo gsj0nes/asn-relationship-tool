@@ -7,7 +7,7 @@ import requests
 import streamlit as st
 from pyvis.network import Network
 
-st.set_page_config(page_title="|ART| - The ASN Relationship Tool", layout="wide")
+st.set_page_config(page_title="|ART| The ASN Relationship Tool", layout="wide")
 
 ACCENT_BLUE = "#355CFF"
 
@@ -66,7 +66,7 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-st.title("|ART| - The ASN Relationship Tool")
+st.title("|ART| The ASN Relationship Tool")
 st.caption("Enter a maximum of 10 ASNs")
 
 RIPESTAT_WHOIS_API_URL = "https://stat.ripe.net/data/whois/data.json?resource=AS{asn}"
